@@ -9,7 +9,7 @@
     "downloads"
   ],
   "host_permissions": [
-    "https://docs.google.com/presentation/d/*"
+    "https://docs.google.com/*"
   ],
   "action": {
     "default_popup": "popup/popup.html",
@@ -46,7 +46,7 @@
         "icons/*"
       ],
       "matches": [
-        "https://docs.google.com/presentation/d/*"
+        "https://docs.google.com/*"
       ]
     }
   ],
