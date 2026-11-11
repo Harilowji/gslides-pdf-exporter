@@ -16,9 +16,11 @@
 }
 
 #gslides-pdf-hud-root.hud-hidden {
+  display: none !important;
   opacity: 0 !important;
   pointer-events: none !important;
   visibility: hidden !important;
+  transition: none !important;
 }
 
 .gslides-hud-card {

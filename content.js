@@ -209,17 +209,18 @@
   }
 
   async function advanceToSlide(targetIndex) {
-    // 1. Scroll filmstrip scroll container towards target slide to ensure DOM virtualization loads it
-    const scrollContainer = document.querySelector(
-      '.punch-filmstrip-scroll-container, .punch-filmstrip'
-    );
-    if (scrollContainer && state.totalSlides > 1) {
-      const scrollRatio = (targetIndex - 1) / (state.totalSlides - 1);
-      scrollContainer.scrollTop = scrollRatio * (scrollContainer.scrollHeight - scrollContainer.clientHeight);
+    const filmstrip = document.querySelector('.punch-filmstrip-scroll-container') ||
+                      document.querySelector('.punch-filmstrip');
+
+    let thumb = document.querySelector(`[aria-posinset="${targetIndex}"]`);
+
+    // If thumbnail is not yet mounted in the virtual DOM, scroll filmstrip to mount it
+    if (!thumb && filmstrip) {
+      filmstrip.scrollTop = Math.max(0, (targetIndex - 2) * 78);
+      await sleep(250);
+      thumb = document.querySelector(`[aria-posinset="${targetIndex}"]`);
     }
 
-    // 2. If thumbnail is visible in DOM, click it
-    const thumb = document.querySelector(`[aria-posinset="${targetIndex}"]`);
     if (thumb) {
       thumb.scrollIntoView({ block: 'nearest' });
       thumb.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
@@ -228,24 +229,37 @@
       return;
     }
 
-    // 3. Dispatch sequential key events
-    dispatchNavigationEvent('next');
+    // Fallback if still missing: dispatch ArrowDown on filmstrip and PageDown on stage
+    if (filmstrip) {
+      filmstrip.focus?.();
+      filmstrip.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', code: 'ArrowDown', keyCode: 40, which: 40, bubbles: true, cancelable: true }));
+      filmstrip.dispatchEvent(new KeyboardEvent('keyup', { key: 'ArrowDown', code: 'ArrowDown', keyCode: 40, which: 40, bubbles: true, cancelable: true }));
+    }
+
+    const stage = document.querySelector('.punch-viewer-content') || document.body;
+    stage.focus?.();
+    stage.dispatchEvent(new KeyboardEvent('keydown', { key: 'PageDown', code: 'PageDown', keyCode: 34, which: 34, bubbles: true, cancelable: true }));
+    stage.dispatchEvent(new KeyboardEvent('keyup', { key: 'PageDown', code: 'PageDown', keyCode: 34, which: 34, bubbles: true, cancelable: true }));
   }
 
   async function navigateToStartSlide(startSlideIndex) {
     updateHUDStatus(`Navigating to slide ${startSlideIndex}...`);
 
-    // Reset scroll container to top if starting at slide 1
-    const scrollContainer = document.querySelector(
+    const filmstrip = document.querySelector(
       '.punch-filmstrip-scroll-container, .punch-filmstrip'
     );
-    if (scrollContainer && startSlideIndex === 1) {
-      scrollContainer.scrollTop = 0;
-      await sleep(150);
+    if (filmstrip && startSlideIndex === 1) {
+      filmstrip.scrollTop = 0;
+      await sleep(200);
     }
 
     if (startSlideIndex === 1) {
-      const firstThumb = document.querySelector('[aria-posinset="1"]');
+      let firstThumb = document.querySelector('[aria-posinset="1"]');
+      if (!firstThumb && filmstrip) {
+        filmstrip.scrollTop = 0;
+        await sleep(200);
+        firstThumb = document.querySelector('[aria-posinset="1"]');
+      }
       if (firstThumb) {
         firstThumb.scrollIntoView({ block: 'nearest' });
         firstThumb.click();
@@ -262,15 +276,23 @@
 
   async function captureSlideStage(rect, scale = 2.0) {
     const hud = document.getElementById('gslides-pdf-hud-root');
-    if (hud) hud.classList.add('hud-hidden');
+    if (hud) {
+      hud.classList.add('hud-hidden');
+      hud.style.display = 'none';
+    }
 
+    // Guarantee the browser compositor has completed a full repaint without the HUD element
+    await sleep(70);
     await new Promise((r) => requestAnimationFrame(r));
 
     let response;
     try {
       response = await chrome.runtime.sendMessage({ action: 'captureVisibleTab' });
     } finally {
-      if (hud) hud.classList.remove('hud-hidden');
+      if (hud) {
+        hud.classList.remove('hud-hidden');
+        hud.style.display = 'block';
+      }
     }
 
     if (!response || !response.success || !response.dataUrl) {
@@ -441,9 +463,9 @@
     state.config = Object.assign(state.config, config);
 
     const detectedTotal = detectTotalSlides();
-    state.totalSlides = Math.max(detectedTotal, parseInt(config.endSlide || 1, 10));
     state.startSlide = Math.max(1, parseInt(config.startSlide || 1, 10));
-    state.endSlide = parseInt(config.endSlide || state.totalSlides, 10);
+    state.endSlide = parseInt(config.endSlide, 10) || detectedTotal || 1;
+    state.totalSlides = Math.max(detectedTotal, state.endSlide);
 
     if (state.endSlide < state.startSlide) {
       state.endSlide = state.startSlide;

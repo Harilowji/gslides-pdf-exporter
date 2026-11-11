@@ -103,8 +103,15 @@ document.addEventListener('DOMContentLoaded', async () => {
       metaCurrentSlide.textContent = response.currentSlide || '1';
 
       startSlideInput.value = '1';
-      endSlideInput.value = response.totalSlides || '1';
-      endSlideInput.max = response.totalSlides || 9999;
+      endSlideInput.max = 9999;
+
+      const detected = parseInt(response.totalSlides, 10) || 1;
+      const currentVal = parseInt(endSlideInput.value, 10);
+      if (detected > 10) {
+        endSlideInput.value = detected;
+      } else if (isNaN(currentVal) || currentVal <= 1) {
+        endSlideInput.value = detected;
+      }
 
       if (response.isExporting) {
         setExportingUI(true);
@@ -162,7 +169,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const config = {
       delayMs: parseInt(delayInput.value, 10) || 450,
       startSlide: parseInt(startSlideInput.value, 10) || 1,
-      endSlide: parseInt(endSlideInput.value, 10) || parseInt(metaTotalSlides.textContent, 10) || 1,
+      endSlide: parseInt(endSlideInput.value, 10) || 1,
       dpr: parseFloat(dprSelect.value) || 2.0,
       format: formatSelect.value || 'image/jpeg',
       quality: 0.95
