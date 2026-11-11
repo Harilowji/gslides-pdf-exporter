@@ -26,7 +26,7 @@
   "content_scripts": [
     {
       "matches": [
-        "https://docs.google.com/presentation/d/*/edit*"
+        "https://docs.google.com/presentation/d/*"
       ],
       "js": [
         "libs/jspdf.umd.min.js",

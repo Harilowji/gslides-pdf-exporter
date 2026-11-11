@@ -7,7 +7,6 @@
  */
 
 (() => {
-  // Global export state
   const state = {
     isExporting: false,
     cancelRequested: false,
@@ -27,14 +26,8 @@
     hudEl: null
   };
 
-  /**
-   * Safe sleep helper
-   */
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-  /**
-   * Helper to wait for the next animation frame and idle callback
-   */
   const waitForPaint = () => {
     return new Promise((resolve) => {
       requestAnimationFrame(() => {
@@ -47,9 +40,6 @@
     });
   };
 
-  /**
-   * Detect presentation title
-   */
   function getPresentationTitle() {
     const titleInput = document.querySelector('.docs-title-input, input.docs-title-input');
     if (titleInput && titleInput.value && titleInput.value.trim().length > 0) {
@@ -60,65 +50,72 @@
   }
 
   /**
-   * Automatically detect total number of slides from Google Slides UI
+   * Accurate detection of total slides in Google Slides (works in View-Only & Edit mode)
    */
   function detectTotalSlides() {
-    // 1. Check aria-setsize on any filmstrip item
-    const ariaSetElement = document.querySelector('[aria-setsize]');
-    if (ariaSetElement) {
-      const setSize = parseInt(ariaSetElement.getAttribute('aria-setsize'), 10);
-      if (!isNaN(setSize) && setSize > 0) {
-        return setSize;
+    // 1. Specifically look inside the filmstrip container (excludes menus like File menu which has 8 items)
+    const filmstrip = document.querySelector(
+      '.punch-filmstrip-scroll-container, .punch-filmstrip, [role="listbox"], .docs-filmstrip'
+    );
+    if (filmstrip) {
+      const filmstripItem = filmstrip.querySelector('[aria-setsize]');
+      if (filmstripItem) {
+        const val = parseInt(filmstripItem.getAttribute('aria-setsize'), 10);
+        if (!isNaN(val) && val > 0) return val;
       }
     }
 
-    // 2. Count distinct filmstrip thumbnail elements
+    // 2. Scan all aria-setsize elements excluding menus and toolbars, find maximum
+    const allSetSize = Array.from(document.querySelectorAll('[aria-setsize]'));
+    let maxSet = 0;
+    for (const el of allSetSize) {
+      if (el.closest('[role="menu"], [role="menubar"], .goog-menu, .docs-material-menu, .goog-toolbar')) {
+        continue;
+      }
+      const val = parseInt(el.getAttribute('aria-setsize'), 10);
+      if (!isNaN(val) && val > maxSet) {
+        maxSet = val;
+      }
+    }
+    if (maxSet > 0) return maxSet;
+
+    // 3. Scan all aria-posinset elements in the filmstrip or document body
+    const posElements = Array.from(document.querySelectorAll('[aria-posinset]'));
+    let maxPos = 0;
+    for (const el of posElements) {
+      if (el.closest('[role="menu"], [role="menubar"], .goog-menu, .docs-material-menu, .goog-toolbar')) {
+        continue;
+      }
+      const val = parseInt(el.getAttribute('aria-posinset'), 10);
+      if (!isNaN(val) && val > maxPos) {
+        maxPos = val;
+      }
+    }
+    if (maxPos > 0) return maxPos;
+
+    // 4. Count filmstrip items
     const thumbnails = document.querySelectorAll(
-      '.punch-filmstrip-thumbnail, .punch-filmstrip-item, [role="option"][aria-posinset]'
+      '.punch-filmstrip-thumbnail, .punch-filmstrip-item, [role="option"]'
     );
     if (thumbnails && thumbnails.length > 0) {
-      // Find maximum aria-posinset among thumbnails
-      let maxPos = 0;
-      thumbnails.forEach((el) => {
-        const pos = parseInt(el.getAttribute('aria-posinset'), 10);
-        if (!isNaN(pos) && pos > maxPos) {
-          maxPos = pos;
-        }
-      });
-      if (maxPos > 0) return maxPos;
       return thumbnails.length;
     }
 
-    // 3. Fallback: query all elements with aria-posinset in the document
-    const allPosElements = document.querySelectorAll('[aria-posinset]');
-    let fallbackMax = 0;
-    allPosElements.forEach((el) => {
-      const pos = parseInt(el.getAttribute('aria-posinset'), 10);
-      if (!isNaN(pos) && pos > fallbackMax) {
-        fallbackMax = pos;
-      }
-    });
-
-    return fallbackMax > 0 ? fallbackMax : 1;
+    return 1;
   }
 
-  /**
-   * Detect current active slide index from Google Slides UI
-   */
   function detectCurrentSlideIndex() {
-    // 1. Look for selected thumbnail in filmstrip
     const selectedItem = document.querySelector(
-      '[role="option"][aria-selected="true"], [aria-posinset][aria-selected="true"], .punch-filmstrip-thumbnail-focused'
+      '.punch-filmstrip [role="option"][aria-selected="true"], .punch-filmstrip [aria-posinset][aria-selected="true"], .punch-filmstrip-thumbnail-focused'
     );
     if (selectedItem) {
       const pos = parseInt(selectedItem.getAttribute('aria-posinset'), 10);
       if (!isNaN(pos) && pos > 0) return pos;
     }
 
-    // 2. Check filmstrip element with focused class
-    const focused = document.querySelector('.punch-filmstrip-item.focused, .punch-filmstrip-thumbnail.focused');
-    if (focused) {
-      const pos = parseInt(focused.getAttribute('aria-posinset'), 10);
+    const anySelected = document.querySelector('[role="option"][aria-selected="true"]');
+    if (anySelected && !anySelected.closest('[role="menu"]')) {
+      const pos = parseInt(anySelected.getAttribute('aria-posinset'), 10);
       if (!isNaN(pos) && pos > 0) return pos;
     }
 
@@ -126,97 +123,102 @@
   }
 
   /**
-   * Find primary rendered slide stage element (SVG or Canvas)
-   * and return its exact bounding rectangle.
+   * Find exact rendered 16:9 slide stage element (excludes grey workspace border)
    */
   function findSlideElement() {
-    // Priority candidate selectors
+    // 1. Highest priority: exact SVG slide page container
     const candidates = [
       document.querySelector('.punch-viewer-svgpage svg'),
+      document.querySelector('svg.punch-viewer-svgpage-svg'),
       document.querySelector('.punch-viewer-svgpage'),
       document.querySelector('.punch-viewer-content svg.punch-viewer-svgpage-svg'),
       document.querySelector('.punch-viewer-content canvas'),
-      document.querySelector('svg.punch-viewer-svgpage-svg'),
       document.querySelector('.punch-viewer-content')
     ];
 
     for (const el of candidates) {
       if (el) {
         const rect = el.getBoundingClientRect();
-        // Valid slide stage dimensions check
-        if (rect.width > 240 && rect.height > 135) {
+        // Check for realistic 16:9 dimensions
+        const ratio = rect.width / rect.height;
+        if (rect.width > 240 && rect.height > 135 && ratio >= 1.2 && ratio <= 2.2) {
           return { element: el, rect };
         }
       }
     }
 
-    // Fallback: search all SVGs or canvases in main editor viewport
-    const viewportElements = Array.from(document.querySelectorAll('svg, canvas'));
-    for (const el of viewportElements) {
+    // 2. Fallback: inspect any SVG or Canvas in center stage
+    const svgs = Array.from(document.querySelectorAll('svg, canvas'));
+    for (const el of svgs) {
+      if (el.closest('.punch-filmstrip, [role="listbox"], [role="menu"]')) continue;
       const rect = el.getBoundingClientRect();
       const ratio = rect.width / rect.height;
-      // Expect 16:9 (~1.77) or 4:3 (~1.33) or 16:10 (~1.6)
-      if (rect.width > 320 && rect.height > 180 && ratio >= 1.2 && ratio <= 2.2) {
+      if (rect.width > 300 && rect.height > 180 && ratio >= 1.3 && ratio <= 2.0) {
         return { element: el, rect };
       }
     }
 
-    // Ultimate fallback: workspace window container
     const fallbackEl = document.querySelector('#workspace-container, .docs-editor-container') || document.body;
     return { element: fallbackEl, rect: fallbackEl.getBoundingClientRect() };
   }
 
   /**
-   * Focus stage or filmstrip for navigation
+   * Dispatches navigation events across all candidate targets
    */
-  function focusNavigationTarget() {
-    const targets = [
-      document.querySelector('.punch-filmstrip-thumbnail-focused'),
-      document.querySelector('[role="option"][aria-selected="true"]'),
-      document.querySelector('.punch-filmstrip-scroll-container'),
-      document.querySelector('.punch-filmstrip'),
-      document.querySelector('.punch-viewer-content'),
-      document.body
-    ];
+  function dispatchNavigationEvent(direction = 'next') {
+    const isNext = direction === 'next';
+    const key = isNext ? 'ArrowDown' : 'ArrowUp';
+    const keyCode = isNext ? 40 : 38;
+    const pageKey = isNext ? 'PageDown' : 'PageUp';
+    const pageKeyCode = isNext ? 34 : 33;
+    const rightKey = isNext ? 'ArrowRight' : 'ArrowLeft';
+    const rightKeyCode = isNext ? 39 : 37;
 
-    for (const t of targets) {
-      if (t) {
-        try {
-          t.focus();
-          return t;
-        } catch (e) {
-          // Continue
-        }
-      }
-    }
-    return document.body;
-  }
-
-  /**
-   * Dispatch keyboard event sequence (ArrowDown, PageDown, etc.)
-   */
-  function dispatchKey(key, keyCode, target) {
-    const el = target || focusNavigationTarget();
-    const eventParams = {
-      key: key,
-      code: key,
-      keyCode: keyCode,
-      which: keyCode,
+    const makeOpts = (k, code) => ({
+      key: k,
+      code: k,
+      keyCode: code,
+      which: code,
       bubbles: true,
       cancelable: true,
       composed: true,
       view: window
-    };
+    });
 
-    el.dispatchEvent(new KeyboardEvent('keydown', eventParams));
-    el.dispatchEvent(new KeyboardEvent('keyup', eventParams));
+    const targets = [
+      document.querySelector('.punch-filmstrip-scroll-container'),
+      document.querySelector('.punch-filmstrip'),
+      document.querySelector('.punch-viewer-content'),
+      document.querySelector('.docs-editor-container'),
+      document.activeElement,
+      document.body,
+      document
+    ].filter(Boolean);
+
+    for (const t of targets) {
+      try {
+        t.focus?.();
+        t.dispatchEvent(new KeyboardEvent('keydown', makeOpts(key, keyCode)));
+        t.dispatchEvent(new KeyboardEvent('keyup', makeOpts(key, keyCode)));
+        t.dispatchEvent(new KeyboardEvent('keydown', makeOpts(pageKey, pageKeyCode)));
+        t.dispatchEvent(new KeyboardEvent('keyup', makeOpts(pageKey, pageKeyCode)));
+        t.dispatchEvent(new KeyboardEvent('keydown', makeOpts(rightKey, rightKeyCode)));
+        t.dispatchEvent(new KeyboardEvent('keyup', makeOpts(rightKey, rightKeyCode)));
+      } catch (e) {}
+    }
   }
 
-  /**
-   * Navigate to a specific slide index or advance forward
-   */
   async function advanceToSlide(targetIndex) {
-    // 1. Try to find thumbnail by aria-posinset and click
+    // 1. Scroll filmstrip scroll container towards target slide to ensure DOM virtualization loads it
+    const scrollContainer = document.querySelector(
+      '.punch-filmstrip-scroll-container, .punch-filmstrip'
+    );
+    if (scrollContainer && state.totalSlides > 1) {
+      const scrollRatio = (targetIndex - 1) / (state.totalSlides - 1);
+      scrollContainer.scrollTop = scrollRatio * (scrollContainer.scrollHeight - scrollContainer.clientHeight);
+    }
+
+    // 2. If thumbnail is visible in DOM, click it
     const thumb = document.querySelector(`[aria-posinset="${targetIndex}"]`);
     if (thumb) {
       thumb.scrollIntoView({ block: 'nearest' });
@@ -226,34 +228,29 @@
       return;
     }
 
-    // 2. Dispatch ArrowDown on filmstrip
-    const filmstrip = document.querySelector('.punch-filmstrip-scroll-container, .punch-filmstrip');
-    if (filmstrip) {
-      dispatchKey('ArrowDown', 40, filmstrip);
-    }
-
-    // 3. Dispatch PageDown on stage as reliable backup
-    const stage = document.querySelector('.punch-viewer-content') || document.body;
-    dispatchKey('PageDown', 34, stage);
+    // 3. Dispatch sequential key events
+    dispatchNavigationEvent('next');
   }
 
-  /**
-   * Navigate to Slide 1
-   */
   async function navigateToStartSlide(startSlideIndex) {
     updateHUDStatus(`Navigating to slide ${startSlideIndex}...`);
 
-    // If starting at slide 1, try Home key or clicking first thumbnail
+    // Reset scroll container to top if starting at slide 1
+    const scrollContainer = document.querySelector(
+      '.punch-filmstrip-scroll-container, .punch-filmstrip'
+    );
+    if (scrollContainer && startSlideIndex === 1) {
+      scrollContainer.scrollTop = 0;
+      await sleep(150);
+    }
+
     if (startSlideIndex === 1) {
       const firstThumb = document.querySelector('[aria-posinset="1"]');
       if (firstThumb) {
         firstThumb.scrollIntoView({ block: 'nearest' });
         firstThumb.click();
       } else {
-        const filmstrip = document.querySelector('.punch-filmstrip-scroll-container, .punch-filmstrip');
-        if (filmstrip) {
-          dispatchKey('Home', 36, filmstrip);
-        }
+        dispatchNavigationEvent('prev');
       }
     } else {
       await advanceToSlide(startSlideIndex);
@@ -263,45 +260,36 @@
     await waitForPaint();
   }
 
-  /**
-   * Capture slide stage into high-res HTML5 Canvas with 2x DPR
-   */
   async function captureSlideStage(rect, scale = 2.0) {
-    // 1. Temporarily hide HUD to prevent it appearing in PDF capture
     const hud = document.getElementById('gslides-pdf-hud-root');
     if (hud) hud.classList.add('hud-hidden');
 
-    // Wait 1 animation frame for repaint without HUD
     await new Promise((r) => requestAnimationFrame(r));
 
     let response;
     try {
       response = await chrome.runtime.sendMessage({ action: 'captureVisibleTab' });
     } finally {
-      // 2. Restore HUD immediately
       if (hud) hud.classList.remove('hud-hidden');
     }
 
     if (!response || !response.success || !response.dataUrl) {
-      throw new Error(response?.error || 'Failed to capture visible tab from background service worker.');
+      throw new Error(response?.error || 'Failed to capture visible tab.');
     }
 
-    // 3. Load screenshot into an image element
     const img = await new Promise((resolve, reject) => {
       const image = new Image();
       image.onload = () => resolve(image);
-      image.onerror = (e) => reject(new Error('Failed to load tab screenshot image.'));
+      image.onerror = () => reject(new Error('Failed to load tab screenshot image.'));
       image.src = response.dataUrl;
     });
 
-    // 4. Calculate source and destination coordinates with Device Pixel Ratio
     const tabDpr = window.devicePixelRatio || 1;
     const sx = Math.round(rect.left * tabDpr);
     const sy = Math.round(rect.top * tabDpr);
     const sw = Math.round(rect.width * tabDpr);
     const sh = Math.round(rect.height * tabDpr);
 
-    // Destination canvas scaled with target DPR (e.g., 2.0 for sharp text)
     const targetWidth = Math.round(rect.width * scale);
     const targetHeight = Math.round(rect.height * scale);
 
@@ -313,15 +301,13 @@
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'high';
 
-    // Crop exact slide stage area
     ctx.drawImage(img, sx, sy, sw, sh, 0, 0, targetWidth, targetHeight);
 
-    // 5. Convert to compact high-quality JPEG / PNG data URL
     const format = state.config.format || 'image/jpeg';
     const quality = state.config.quality || 0.95;
     const dataUrl = canvas.toDataURL(format, quality);
 
-    // 6. Explicitly cleanup canvas and image memory
+    // Free canvas & image memory immediately
     canvas.width = 0;
     canvas.height = 0;
     img.src = '';
@@ -329,9 +315,6 @@
     return dataUrl;
   }
 
-  /**
-   * Floating Progress HUD Management
-   */
   function createHUD() {
     if (document.getElementById('gslides-pdf-hud-root')) {
       return document.getElementById('gslides-pdf-hud-root');
@@ -374,7 +357,6 @@
 
     document.body.appendChild(hudRoot);
 
-    // Event listener for cancel button
     const cancelBtn = hudRoot.querySelector('#gslides-hud-btn-cancel');
     cancelBtn.addEventListener('click', () => {
       cancelExportWorkflow();
@@ -433,9 +415,6 @@
     }, delayMs);
   }
 
-  /**
-   * Cancel export workflow
-   */
   function cancelExportWorkflow() {
     if (!state.isExporting) return;
     state.cancelRequested = true;
@@ -446,13 +425,9 @@
     if (cancelBtn) cancelBtn.style.display = 'none';
   }
 
-  /**
-   * Main PDF Export Pipeline
-   */
   async function runExportWorkflow(config) {
     if (state.isExporting) return;
 
-    // Verify jsPDF library availability
     const jsPdfConstructor = window.jspdf ? window.jspdf.jsPDF : window.jsPDF;
     if (!jsPdfConstructor) {
       alert('jsPDF library is not loaded. Please ensure jspdf.umd.min.js is present in libs/.');
@@ -465,14 +440,10 @@
     state.startTime = Date.now();
     state.config = Object.assign(state.config, config);
 
-    // Detect total slides
     const detectedTotal = detectTotalSlides();
-    state.totalSlides = detectedTotal;
+    state.totalSlides = Math.max(detectedTotal, parseInt(config.endSlide || 1, 10));
     state.startSlide = Math.max(1, parseInt(config.startSlide || 1, 10));
-    state.endSlide = Math.min(
-      detectedTotal,
-      parseInt(config.endSlide || detectedTotal, 10)
-    );
+    state.endSlide = parseInt(config.endSlide || state.totalSlides, 10);
 
     if (state.endSlide < state.startSlide) {
       state.endSlide = state.startSlide;
@@ -481,13 +452,12 @@
     createHUD();
     updateHUDProgress(state.startSlide, state.endSlide, 'Initializing PDF document...');
 
-    // 1. Locate slide element and determine 16:9 PDF dimensions
+    // 1. Locate slide element and establish strict 16:9 PDF dimensions
     const slideInfo = findSlideElement();
     const rect = slideInfo.rect;
     const slideRatio = rect.width / rect.height;
 
     // Strict 16:9 landscape aspect ratio: 960 pt x 540 pt
-    // If presentation has custom aspect ratio, dynamically match it to avoid margin clipping
     const pdfWidth = 960;
     const pdfHeight = Math.round(pdfWidth / slideRatio);
 
@@ -507,10 +477,7 @@
 
     // 4. Sequential traversal from startSlide to endSlide
     for (let current = state.startSlide; current <= state.endSlide; current++) {
-      if (state.cancelRequested) {
-        console.warn('[GSlides PDF Exporter] Export cancelled by user at slide', current);
-        break;
-      }
+      if (state.cancelRequested) break;
 
       state.currentSlide = current;
       updateHUDProgress(
@@ -519,18 +486,16 @@
         `Capturing slide stage ${current} of ${state.endSlide}...`
       );
 
-      // Render settle delay: allows SVG/canvas elements to settle in viewport
+      // Render settle delay for SVG/canvas stabilization
       await sleep(state.config.delayMs);
       await waitForPaint();
 
-      // Refresh bounding box of slide stage in case of dynamic zoom
       const activeStage = findSlideElement();
 
-      // Capture primary rendered stage with 2x DPR
       try {
         const slideDataUrl = await captureSlideStage(activeStage.rect, state.config.dpr);
 
-        // Progressively append into jsPDF document instance
+        // Progressively append directly into jsPDF
         if (isFirstPage) {
           doc.addImage(slideDataUrl, 'JPEG', 0, 0, pdfWidth, pdfHeight, undefined, 'FAST');
           isFirstPage = false;
@@ -546,7 +511,6 @@
         await sleep(300);
       }
 
-      // If not at the last slide, advance to next
       if (current < state.endSlide && !state.cancelRequested) {
         await advanceToSlide(current + 1);
       }
@@ -568,22 +532,20 @@
         const pdfBlob = doc.output('blob');
         const blobUrl = URL.createObjectURL(pdfBlob);
 
-        chrome.runtime.sendMessage(
-          {
-            action: 'downloadFile',
-            url: blobUrl,
-            filename: filename
-          },
-          (res) => {
-            if (res && res.success) {
-              updateHUDStatus(`Complete! Exported ${state.capturedCount} slides to PDF.`);
-            } else {
-              // Direct browser fallback download
-              doc.save(filename);
-              updateHUDStatus(`Complete! PDF saved.`);
-            }
-          }
-        );
+        // Direct DOM download link (works 100% in all View-Only protected Google Slides)
+        const downloadLink = document.createElement('a');
+        downloadLink.href = blobUrl;
+        downloadLink.download = filename;
+        downloadLink.style.display = 'none';
+        document.body.appendChild(downloadLink);
+        downloadLink.click();
+
+        setTimeout(() => {
+          if (downloadLink.parentNode) downloadLink.parentNode.removeChild(downloadLink);
+          URL.revokeObjectURL(blobUrl);
+        }, 15000);
+
+        updateHUDStatus(`Complete! Exported ${state.capturedCount} slides to PDF.`);
       } catch (saveErr) {
         console.error('[GSlides PDF Exporter] Error saving PDF:', saveErr);
         doc.save(`${sanitizedTitle}.pdf`);
@@ -597,18 +559,14 @@
     removeHUD(5000);
   }
 
-  // Chrome Runtime Message Listener for Popup and Background commands
+  // Runtime Message Listener
   chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.action === 'getSlideInfo') {
-      const total = detectTotalSlides();
-      const current = detectCurrentSlideIndex();
-      const title = getPresentationTitle();
-
       sendResponse({
         success: true,
-        title: title,
-        totalSlides: total,
-        currentSlide: current,
+        title: getPresentationTitle(),
+        totalSlides: detectTotalSlides(),
+        currentSlide: detectCurrentSlideIndex(),
         isExporting: state.isExporting,
         capturedCount: state.capturedCount
       });
@@ -622,9 +580,6 @@
       }
 
       runExportWorkflow(request.config || {})
-        .then(() => {
-          console.log('[GSlides PDF Exporter] Workflow completed.');
-        })
         .catch((err) => {
           console.error('[GSlides PDF Exporter] Workflow fatal error:', err);
           updateHUDStatus('Fatal error during export. Check console.');

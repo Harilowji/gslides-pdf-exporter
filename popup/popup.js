@@ -4,7 +4,6 @@
  */
 
 document.addEventListener('DOMContentLoaded', async () => {
-  // DOM Elements
   const statusPill = document.getElementById('statusPill');
   const invalidTabWarning = document.getElementById('invalidTabWarning');
   const deckInfoCard = document.getElementById('deckInfoCard');
@@ -34,7 +33,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   let activeTabId = null;
   let statusPollInterval = null;
 
-  // 1. Sync Delay Slider and Number Input
   function updateDelay(val) {
     const num = Math.max(200, Math.min(3000, parseInt(val, 10) || 450));
     delaySlider.value = num;
@@ -45,7 +43,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   delaySlider.addEventListener('input', (e) => updateDelay(e.target.value));
   delayInput.addEventListener('change', (e) => updateDelay(e.target.value));
 
-  // 2. Identify Active Tab
+  // Identify active tab
   const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
   const activeTab = tabs[0];
 
@@ -55,14 +53,16 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   activeTabId = activeTab.id;
-  const isGoogleSlides = /^https:\/\/docs\.google\.com\/presentation\/d\/[^/]+\/edit/.test(activeTab.url);
+  // Support /edit, /view, /preview, /present, and query parameters
+  const isGoogleSlides = /^https:\/\/docs\.google\.com\/presentation\/d\/[^/]+/.test(activeTab.url);
 
   if (!isGoogleSlides) {
     showInvalidTabUI();
     return;
   }
 
-  // 3. Query Content Script for Presentation Info
+  // Ensure content script is injected even if tab was open before extension load
+  await ensureContentScriptInjected();
   fetchDeckInfo();
 
   function showInvalidTabUI() {
@@ -74,10 +74,24 @@ document.addEventListener('DOMContentLoaded', async () => {
     startBtn.disabled = true;
   }
 
+  async function ensureContentScriptInjected() {
+    try {
+      await chrome.scripting.insertCSS({
+        target: { tabId: activeTabId },
+        files: ['content.css']
+      });
+      await chrome.scripting.executeScript({
+        target: { tabId: activeTabId },
+        files: ['libs/jspdf.umd.min.js', 'content.js']
+      });
+    } catch (err) {
+      // Content script may already be injected, continue
+    }
+  }
+
   function fetchDeckInfo() {
     chrome.tabs.sendMessage(activeTabId, { action: 'getSlideInfo' }, (response) => {
       if (chrome.runtime.lastError || !response || !response.success) {
-        console.warn('[Popup] Could not establish connection to content script.');
         deckTitle.textContent = activeTab.title ? activeTab.title.replace(/ - Google Slides$/, '') : 'Google Slides Presentation';
         metaTotalSlides.textContent = 'Ready';
         metaCurrentSlide.textContent = '1';
@@ -124,13 +138,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     statusPollInterval = setInterval(() => {
       chrome.tabs.sendMessage(activeTabId, { action: 'getStatus' }, (res) => {
-        if (chrome.runtime.lastError || !res) {
-          clearInterval(statusPollInterval);
-          setExportingUI(false);
-          return;
-        }
-
-        if (!res.isExporting) {
+        if (chrome.runtime.lastError || !res || !res.isExporting) {
           clearInterval(statusPollInterval);
           setExportingUI(false);
           return;
@@ -148,8 +156,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     }, 500);
   }
 
-  // 4. Start Export Button Handler
-  startBtn.addEventListener('click', () => {
+  startBtn.addEventListener('click', async () => {
+    await ensureContentScriptInjected();
+
     const config = {
       delayMs: parseInt(delayInput.value, 10) || 450,
       startSlide: parseInt(startSlideInput.value, 10) || 1,
@@ -164,7 +173,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       { action: 'startExport', config: config },
       (response) => {
         if (chrome.runtime.lastError || !response || !response.success) {
-          alert('Could not start export. Please refresh the Google Slides tab and try again.');
+          alert('Could not start export. Please refresh the Google Slides tab (F5) and try again.');
           return;
         }
 
@@ -174,9 +183,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     );
   });
 
-  // 5. Cancel Export Button Handler
   cancelBtn.addEventListener('click', () => {
-    chrome.tabs.sendMessage(activeTabId, { action: 'cancelExport' }, (response) => {
+    chrome.tabs.sendMessage(activeTabId, { action: 'cancelExport' }, () => {
       cancelBtn.textContent = 'Stopping...';
       cancelBtn.disabled = true;
     });
