@@ -208,19 +208,80 @@
     }
   }
 
+  /**
+   * Phase 1/2: Pre-Scan routine to scroll down and unroll Google Slides Virtual DOM
+   */
+  async function preScanPresentation() {
+    updateHUDStatus('Phase 1/2: Cuộn quét danh sách để tải đủ slide...');
+
+    const filmstrip = document.querySelector('.punch-filmstrip-scroll-container') ||
+                      document.querySelector('.punch-filmstrip');
+    if (!filmstrip) return;
+
+    let lastScrollTop = -1;
+    let sameCount = 0;
+
+    // Rapidly scroll down by 1200px increments to unroll virtual DOM thumbnails
+    while (sameCount < 3) {
+      if (state.cancelRequested) return;
+
+      filmstrip.scrollTop += 1200;
+      await sleep(80);
+
+      const maxScroll = filmstrip.scrollHeight - filmstrip.clientHeight;
+      if (filmstrip.scrollTop >= maxScroll || filmstrip.scrollTop === lastScrollTop) {
+        sameCount++;
+      } else {
+        sameCount = 0;
+      }
+      lastScrollTop = filmstrip.scrollTop;
+    }
+
+    // Settle 300ms to allow Google Slides to register all slides
+    await sleep(300);
+
+    // True total slide count detected after reaching the bottom
+    const confirmedTotal = detectTotalSlides();
+    if (confirmedTotal > 0) {
+      state.totalSlides = confirmedTotal;
+      const userEnd = parseInt(state.config.endSlide, 10);
+      if (!userEnd || userEnd <= 8 || userEnd === state.startSlide) {
+        state.endSlide = confirmedTotal;
+      } else {
+        state.endSlide = Math.max(confirmedTotal, userEnd);
+      }
+    }
+
+    // Scroll back to top
+    filmstrip.scrollTop = 0;
+    await sleep(200);
+
+    // Select slide 1
+    let firstThumb = document.querySelector('[aria-posinset="1"]');
+    if (firstThumb) {
+      firstThumb.scrollIntoView({ block: 'nearest' });
+      firstThumb.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+      firstThumb.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
+      firstThumb.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    } else {
+      dispatchNavigationEvent('prev');
+    }
+
+    // Settle 400ms for stage stabilization
+    await sleep(400);
+    await waitForPaint();
+  }
+
   async function advanceToSlide(targetIndex) {
     const filmstrip = document.querySelector('.punch-filmstrip-scroll-container') ||
                       document.querySelector('.punch-filmstrip');
 
-    let thumb = document.querySelector(`[aria-posinset="${targetIndex}"]`);
-
-    // If thumbnail is not yet mounted in the virtual DOM, scroll filmstrip to mount it
-    if (!thumb && filmstrip) {
+    if (filmstrip) {
       filmstrip.scrollTop = Math.max(0, (targetIndex - 2) * 78);
-      await sleep(250);
-      thumb = document.querySelector(`[aria-posinset="${targetIndex}"]`);
+      await sleep(150);
     }
 
+    const thumb = document.querySelector(`[aria-posinset="${targetIndex}"]`);
     if (thumb) {
       thumb.scrollIntoView({ block: 'nearest' });
       thumb.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
@@ -473,6 +534,12 @@
 
     createHUD();
     updateHUDProgress(state.startSlide, state.endSlide, 'Initializing PDF document...');
+
+    // Phase 1: Automated Pre-Scan down to unroll virtual DOM
+    await preScanPresentation();
+
+    updateHUDStatus('Phase 2/2: Bắt đầu chụp từng slide độ nét cao...');
+    await sleep(200);
 
     // 1. Locate slide element and establish strict 16:9 PDF dimensions
     const slideInfo = findSlideElement();
