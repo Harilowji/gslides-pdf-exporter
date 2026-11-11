@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Google Slides PDF Exporter</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="popup-container">
+    <!-- Header -->
+    <header class="popup-header">
+      <div class="logo-group">
+        <img src="../icons/icon48.png" alt="Logo" class="app-icon">
+        <div>
+          <h1 class="app-title">Slides to PDF</h1>
+          <p class="app-subtitle">16:9 High-Res Archiver</p>
+        </div>
+      </div>
+      <span class="status-pill ready" id="statusPill">Ready</span>
+    </header>
+
+    <!-- Invalid Page Notice (Hidden by default) -->
+    <div class="alert-box alert-warning" id="invalidTabWarning" style="display: none;">
+      <svg class="alert-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="12" cy="12" r="10"></circle>
+        <line x1="12" y1="8" x2="12" y2="12"></line>
+        <line x1="12" y1="16" x2="12.01" y2="16"></line>
+      </svg>
+      <div>
+        <strong>Google Slides Not Detected</strong>
+        <p>Please open or switch to a Google Slides presentation in edit mode.</p>
+      </div>
+    </div>
+
+    <!-- Active Presentation Card -->
+    <div class="deck-info-card" id="deckInfoCard">
+      <div class="deck-title-row">
+        <svg class="deck-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+          <line x1="8" y1="21" x2="16" y2="21"></line>
+          <line x1="12" y1="17" x2="12" y2="21"></line>
+        </svg>
+        <span class="deck-title" id="deckTitle">Loading presentation...</span>
+      </div>
+      <div class="deck-meta">
+        <span class="meta-item">
+          <strong id="metaTotalSlides">--</strong> Total Slides
+        </span>
+        <span class="meta-dot">•</span>
+        <span class="meta-item">
+          Current: Slide <strong id="metaCurrentSlide">--</strong>
+        </span>
+      </div>
+    </div>
+
+    <!-- Configuration Settings Form -->
+    <div class="settings-card" id="settingsCard">
+      <!-- Delay setting -->
+      <div class="form-group">
+        <div class="label-row">
+          <label for="delayInput">Render Settle Delay</label>
+          <span class="value-badge" id="delayBadge">450 ms</span>
+        </div>
+        <div class="slider-row">
+          <input type="range" id="delaySlider" min="200" max="1500" step="50" value="450" class="range-slider">
+          <input type="number" id="delayInput" min="200" max="3000" step="50" value="450" class="number-input">
+        </div>
+        <p class="form-hint">Ensures full SVG/canvas rendering per slide before capture.</p>
+      </div>
+
+      <!-- Slide Range -->
+      <div class="form-row">
+        <div class="form-group half-width">
+          <label for="startSlideInput">Start Slide</label>
+          <input type="number" id="startSlideInput" min="1" value="1" class="number-input full-width">
+        </div>
+        <div class="form-group half-width">
+          <label for="endSlideInput">End Slide</label>
+          <input type="number" id="endSlideInput" min="1" value="1" class="number-input full-width">
+        </div>
+      </div>
+
+      <!-- Rendering Quality -->
+      <div class="form-row">
+        <div class="form-group half-width">
+          <label for="dprSelect">Resolution Quality</label>
+          <select id="dprSelect" class="select-input">
+            <option value="2.0" selected>2x DPR (Crisp Text)</option>
+            <option value="1.0">1x DPR (Standard)</option>
+            <option value="3.0">3x DPR (Ultra Sharp)</option>
+          </select>
+        </div>
+        <div class="form-group half-width">
+          <label for="formatSelect">Image Format</label>
+          <select id="formatSelect" class="select-input">
+            <option value="image/jpeg" selected>JPEG (Light Memory)</option>
+            <option value="image/png">PNG (Lossless)</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <!-- Export In-Progress Card (Hidden initially) -->
+    <div class="progress-card" id="progressCard" style="display: none;">
+      <div class="progress-header">
+        <span class="progress-label" id="progressStatusText">Exporting slides...</span>
+        <span class="progress-percent" id="progressPercentText">0%</span>
+      </div>
+      <div class="progress-bar-wrap">
+        <div class="progress-bar-inner" id="popupProgressBar"></div>
+      </div>
+    </div>
+
+    <!-- Action Buttons -->
+    <div class="actions-group">
+      <button id="startBtn" class="btn btn-primary">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+          <polyline points="14 2 14 8 20 8"></polyline>
+          <line x1="12" y1="18" x2="12" y2="12"></line>
+          <polyline points="9 15 12 12 15 15"></polyline>
+        </svg>
+        Start Export to PDF
+      </button>
+
+      <button id="cancelBtn" class="btn btn-danger" style="display: none;">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+        </svg>
+        Cancel Export
+      </button>
+    </div>
+
+    <!-- Footer -->
+    <footer class="popup-footer">
+      <span>Auto 16:9 Landscape • Zero Margins</span>
+    </footer>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

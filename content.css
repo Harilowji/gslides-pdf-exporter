@@ -1,0 +1,178 @@
+/**
+ * Google Slides High-Res PDF Exporter
+ * Content Script Styles - Floating Progress HUD
+ */
+
+#gslides-pdf-hud-root {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 2147483647;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  color: #f1f3f4;
+  user-select: none;
+  pointer-events: auto;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+#gslides-pdf-hud-root.hud-hidden {
+  opacity: 0 !important;
+  pointer-events: none !important;
+  visibility: hidden !important;
+}
+
+.gslides-hud-card {
+  width: 340px;
+  background: rgba(32, 33, 36, 0.95);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.3);
+  padding: 16px 18px;
+  box-sizing: border-box;
+  animation: gslides-hud-pop 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes gslides-hud-pop {
+  from {
+    opacity: 0;
+    transform: translateY(16px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.gslides-hud-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.gslides-hud-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.gslides-hud-badge-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background-color: #34a853;
+  box-shadow: 0 0 8px #34a853;
+  animation: gslides-hud-pulse 1.8s infinite;
+}
+
+.gslides-hud-badge-dot.finalizing {
+  background-color: #4285f4;
+  box-shadow: 0 0 8px #4285f4;
+}
+
+.gslides-hud-badge-dot.cancelled {
+  background-color: #ea4335;
+  box-shadow: 0 0 8px #ea4335;
+  animation: none;
+}
+
+@keyframes gslides-hud-pulse {
+  0% { transform: scale(0.95); opacity: 0.8; }
+  50% { transform: scale(1.15); opacity: 1; }
+  100% { transform: scale(0.95); opacity: 0.8; }
+}
+
+.gslides-hud-title {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  color: #e8eaed;
+}
+
+.gslides-hud-slide-counter {
+  font-size: 14px;
+  font-weight: 700;
+  color: #8ab4f8;
+  font-feature-settings: "tnum";
+  font-variant-numeric: tabular-nums;
+}
+
+/* Progress bar container */
+.gslides-hud-progress-bg {
+  width: 100%;
+  height: 8px;
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 10px;
+  position: relative;
+}
+
+.gslides-hud-progress-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #4285f4, #34a853);
+  border-radius: 4px;
+  transition: width 0.25s ease-out;
+}
+
+.gslides-hud-stats-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+  color: #9aa0a6;
+  margin-bottom: 14px;
+  font-feature-settings: "tnum";
+}
+
+.gslides-hud-eta {
+  color: #bdc1c6;
+}
+
+.gslides-hud-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.gslides-hud-btn {
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #e8eaed;
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.gslides-hud-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.35);
+}
+
+.gslides-hud-btn-cancel {
+  border-color: rgba(234, 67, 53, 0.4);
+  color: #f28b82;
+}
+
+.gslides-hud-btn-cancel:hover {
+  background: rgba(234, 67, 53, 0.15);
+  border-color: #ea4335;
+}
+
+.gslides-hud-status-text {
+  font-size: 11px;
+  color: #8ab4f8;
+  margin-bottom: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
